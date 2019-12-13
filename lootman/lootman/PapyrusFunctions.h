@@ -9,5 +9,4 @@ struct StaticFunctionTag;
 namespace papyrusFunctions
 {
     bool RegisterFuncs(VirtualMachine * vm);
-    //void Messaging(F4SEMessagingInterface::Message * msg);
 }

@@ -9,7 +9,6 @@ IDebugLog gLog;
 
 PluginHandle pluginHandle = kPluginHandle_Invalid;
 F4SEPapyrusInterface * papyrus = nullptr;
-//F4SEMessagingInterface * messaging = nullptr;
 
 extern "C"
 {
@@ -22,7 +21,7 @@ extern "C"
 
         info->infoVersion = PluginInfo::kInfoVersion;
         info->name = "Lootman";
-        info->version = 11016301;
+        info->version = 11016302;
 
         if(f4se->isEditor)
         {
@@ -42,16 +41,6 @@ extern "C"
             return false;
         }
 
-        /*
-        pluginHandle = f4se->GetPluginHandle();
-        messaging = (F4SEMessagingInterface *)f4se->QueryInterface(kInterface_Messaging);
-        if(!messaging)
-        {
-            _FATALERROR("couldn't get messaging interface");
-            return false;
-        }
-        */
-
         return true;
     }
 
@@ -59,11 +48,6 @@ extern "C"
     {
         if(papyrus)
             papyrus->Register(papyrusFunctions::RegisterFuncs);
-
-        /*
-        if(messaging)
-            messaging->RegisterListener(pluginHandle, "F4SE", papyrusFunctions::Messaging);
-        */
 
         _DMESSAGE("Lootman plugin is loaded.");
         return true;

@@ -8,79 +8,44 @@
 #include "f4se/GameReferences.h"
 #include "f4se/GameRTTI.h"
 
-#include <map>
-#include <string>
+#include <algorithm>
 #include <stdio.h>
-
-#pragma warning(disable:4996)
+#include <string>
+#include <map>
+#include <vector>
 
 std::map<std::string, int> gConfigInt;
 
-/*
-SimpleLock gLock;
-tArray<TESObjectREFR *> gObjectContainer;
-
-class TESObjectLoadedEventSink : public BSTEventSink<TESObjectLoadedEvent>
-{
-public:
-    virtual EventResult ReceiveEvent(TESObjectLoadedEvent * evn, void * dispatcher)
-    {
-        TESForm * form = LookupFormByID(evn->formId);
-        if(!form)
-            return kEvent_Continue;
-        
-        TESObjectREFR * ref = DYNAMIC_CAST(form, TESForm, TESObjectREFR);
-        if(ref)
-        {
-            if(evn->loaded == 0)
-            {
-                SimpleLocker locker(&gLock);
-
-                for(int i = 0; i < gObjectContainer.count; i++)
-                {
-                    if(gObjectContainer[i] == ref)
-                        gObjectContainer.Remove(i);
-                }
-            }
-            else
-            {
-                SimpleLocker locker(&gLock);
-
-                gObjectContainer.Insert(0, ref);
-                //_DMESSAGE("Load object[name=%s, type=%03d]", CALL_MEMBER_FN(ref, GetReferenceName)(), ref->baseForm->formType);
-            }
-        }
-        
-        return kEvent_Continue;
-    };
-};
-TESObjectLoadedEventSink objectLoadedShink;
-*/
-
 namespace papyrusFunctions
 {
-    bool _ExcludeItem(TESForm * form, VMArray<UInt32> excludeTypes)
+    struct Wrapper
     {
-        if(!excludeTypes.IsNone())
+        TESObjectREFR * ref;
+        float distance;
+
+        Wrapper(TESObjectREFR * ptr, float num)
         {
-            UInt32 type;
-            for(int i = 0; i < excludeTypes.Length(); i++)
-            {
-                excludeTypes.Get(&type, i);
-                if(type > 0 && form->formType == type)
-                {
-                    return true;
-                }
-            }
+            ref = ptr;
+            distance = num;
         }
-        return false;
-    }
 
-    bool _IncludeItem(TESForm * form, VMArray<UInt32> includeTypes)
+        bool operator<(const Wrapper &other) const
+        {
+            return distance > other.distance;
+        }
+    };
+
+    bool _FormIsIncludeType(TESForm * form, VMArray<UInt32> includeTypes)
     {
+        // プレイアブルではないアイテム（多分）は無視する
+        if(!form || (form->flags & 4) != 0)
+        {
+            return false;
+        }
         if(includeTypes.IsNone())
+        {
             return true;
-
+        }
         UInt32 type;
         for(UInt32 i = 0; i < includeTypes.Length(); i++)
         {
@@ -93,180 +58,120 @@ namespace papyrusFunctions
         return false;
     }
 
-    VMArray<TESObjectREFR *> FindReferencesInRange(StaticFunctionTag *,
-                                                   TESObjectREFR * ref,
-                                                   UInt32 distance,
-                                                   VMArray<UInt32> includeTypes,
-                                                   VMArray<UInt32> excludeTypes)
+    VMArray<TESForm *> FilterAllFormByFormType(StaticFunctionTag *,
+                                               VMArray<TESForm *> forms,
+                                               VMArray<UInt32> filterTypes)
     {
-        VMArray<TESObjectREFR *> result;
-        
-        if(!ref)
-            return result;
-
-        /*
-        NiPoint3 pos = ref->pos;
-
-        SimpleLocker locker(&gLock);
-
-        for(int i = 0; i < gObjectContainer.count; i++)
+        VMArray<TESForm *> result;
+        TESForm * form = nullptr;
+        for(UInt32 i = 0; i < forms.Length(); i++)
         {
-            TESObjectREFR * entry = gObjectContainer[i];
-            
-            if(distance > 0)
+            forms.Get(&form, i);
+            if(_FormIsIncludeType(form, filterTypes))
             {
-                NiPoint3 pos2 = ref->pos;
-                float x = pos.x - pos2.x;
-                float y = pos.y - pos2.y;
-                float z = pos.z - pos2.z;
-                
-                if(std::sqrtf((x * x) + (y * y) + (z * z)) > distance)
-                {
-                    continue;
-                }
-            }
-            
-            TESForm * form = entry->baseForm;
-            if(!form)
-                continue;
-            
-            if(!_ExcludeItem(form, excludeTypes) && _IncludeItem(form, includeTypes))
-            {
-                result.Push(&entry);
+                result.Push(&form);
             }
         }
-        */
+        return result;
+    }
 
-        
-        TESObjectCELL * cell = ref->parentCell;
-        if(!cell)
+    VMArray<TESObjectREFR *> FilterAllReferenceByFormType(StaticFunctionTag *,
+                                                          VMArray<TESObjectREFR *> refs,
+                                                          VMArray<UInt32> filterTypes)
+    {
+        VMArray<TESObjectREFR *> result;
+        TESObjectREFR * ref = nullptr;
+        for(UInt32 i = 0; i < refs.Length(); i++)
+        {
+            refs.Get(&ref, i);
+            if(ref && _FormIsIncludeType(ref->baseForm, filterTypes))
+            {
+                result.Push(&ref);
+            }
+        }
+        return result;
+    }
+
+    VMArray<TESObjectREFR *> FindAllReferenceWithinRange(StaticFunctionTag *,
+                                                         TESObjectREFR * player,
+                                                         UInt32 range)
+    {
+        std::vector<Wrapper> vec;
+        VMArray<TESObjectREFR *> result;
+
+        if(!player)
+        {
             return result;
-        
-        NiPoint3 pos = ref->pos;
-        auto findReferences = [&](TESObjectCELL * cell)
+        }
+        TESObjectCELL * parentCell = player->parentCell;
+        if(!parentCell)
+        {
+            return result;
+        }
+
+        NiPoint3 playerPos = player->pos;
+        auto find = [&](TESObjectCELL * cell)
         {
             for(int i = 0; i < cell->objectList.count; i++)
             {
-                TESObjectREFR * entry = cell->objectList.entries[i];
+                TESObjectREFR * ref = cell->objectList.entries[i];
+                NiPoint3 refPos = ref->pos;
+                float x = playerPos.x - refPos.x;
+                float y = playerPos.y - refPos.y;
+                float z = playerPos.z - refPos.z;
 
-                if(distance > 0)
+                float distance = std::sqrtf((x * x) + (y * y) + (z * z));
+                if(range == 0 || distance <= range)
                 {
-                    NiPoint3 pos2 = ref->pos;
-                    float x = pos.x - pos2.x;
-                    float y = pos.y - pos2.y;
-                    float z = pos.z - pos2.z;
-
-                    if(std::sqrtf((x * x) + (y * y) + (z * z)) > distance)
-                    {
-                        continue;
-                    }
-                }
-
-                TESForm * form = entry->baseForm;
-                if(!form)
-                    continue;
-
-                if(!_ExcludeItem(form, excludeTypes) && _IncludeItem(form, includeTypes))
-                {
-                    result.Push(&entry);
+                    vec.push_back(Wrapper(ref, distance));
                 }
             }
         };
 
-        findReferences(cell);
-        
-        TESForm * form = LookupFormByID(cell->preVisCell);
-        if(!form)
-            return result;
+        find(parentCell);
 
-        TESObjectCELL * preVisCell = DYNAMIC_CAST(form, TESForm, TESObjectCELL);
-        if(preVisCell)
+        TESForm * form = LookupFormByID(parentCell->preVisCell);
+        if(form)
         {
-            if((cell->flags & TESObjectCELL::kFlag_IsInterior) == (preVisCell->flags & TESObjectCELL::kFlag_IsInterior))
+            TESObjectCELL * preVisCell = DYNAMIC_CAST(form, TESForm, TESObjectCELL);
+            if(preVisCell && (preVisCell->flags & 16) != 0)
             {
-                findReferences(preVisCell);
+                find(preVisCell);
             }
         }
-        
 
+        std::sort(vec.begin(), vec.end());
+        for(auto &wrapper : vec)
+        {
+            if(wrapper.ref)
+            {
+                result.Push(&wrapper.ref);
+            }
+        }
         return result;
     }
 
-    VMArray<TESForm *> FindItemsInInventory(StaticFunctionTag *,
-                                            TESObjectREFR * ref,
-                                            VMArray<UInt32> includeTypes,
-                                            VMArray<UInt32> excludeTypes)
+    // 対象のキーワードを含む、すべてのフォームリストを検索して返す
+    VMArray<BGSListForm *> FindAllFormListThatHasKeyword(StaticFunctionTag *, BGSKeyword * keyword)
     {
-        VMArray<TESForm*> result;
+        VMArray<BGSListForm*> result;
 
-        if(!ref)
-            return result;
-
-        BGSInventoryList * inventory = ref->inventoryList;
-        if(inventory)
+        auto list = (*g_dataHandler)->arrFLST;
+        for (int i = 0; i < list.count; i++)
         {
-            inventory->inventoryLock.LockForRead();
-
-            for(int i = 0; i < inventory->items.count; i++)
+            BGSListForm* formList = nullptr;
+            list.GetNthItem(i, formList);
+            auto forms = formList->forms;
+            for (int j = 0; j < forms.count; j++)
             {
-                BGSInventoryItem item;
-                inventory->items.GetNthItem(i, item);
-                TESForm * form = item.form;
-
-                // プレイアブルではないアイテム（多分）は無視する
-                if((form->flags & 4) != 0)
-                    continue;
-
-                // 鍵は自動取得すると、インベントリに表示されなくて受け取れないので無視する
-                // TODO: 鍵を入れることができるコンテナのModがあったので、調査してみる
-                if(form->formType == FormType::kFormType_KEYM)
-                    continue;
-
-                if(!_ExcludeItem(form, excludeTypes) && _IncludeItem(form, includeTypes))
+                TESForm* form = nullptr;
+                forms.GetNthItem(j, form);
+                if (keyword->formID == form->formID)
                 {
-                    result.Push(&form);
+                    result.Push(&formList);
+                    break;
                 }
             }
-
-            inventory->inventoryLock.Unlock();
-        }
-
-        return result;
-    }
-
-    VMArray<TESForm *> FindJunkOrModInInventory(StaticFunctionTag *, TESObjectREFR * ref, bool findJunk)
-    {
-        VMArray<TESForm*> result;
-
-        if(!ref)
-            return result;
-
-        BGSInventoryList * inventory = ref->inventoryList;
-        if(inventory)
-        {
-            inventory->inventoryLock.LockForRead();
-
-            for(int i = 0; i < inventory->items.count; i++)
-            {
-                BGSInventoryItem item;
-                inventory->items.GetNthItem(i, item);
-                TESForm * form = item.form;
-
-                // プレイアブルではないアイテム（多分）は無視する
-                if((form->flags & 4) != 0)
-                    continue;
-
-                if(form->formType != FormType::kFormType_MISC)
-                    continue;
-
-                TESObjectMISC * misc = DYNAMIC_CAST(form, TESForm, TESObjectMISC);
-                if((findJunk && misc->components) || (!findJunk && !misc->components))
-                {
-                    result.Push(&form);
-                }
-            }
-
-            inventory->inventoryLock.Unlock();
         }
 
         return result;
@@ -286,18 +191,24 @@ namespace papyrusFunctions
 
         // ワークショップのキーワード取得に失敗
         if(!keyword)
+        {
             return false;
+        }
 
         // 取得したキーワードを使用して
         // オブジェクトにリンクしているワークショップ（と思われる）オブジェクトを取得
         TESObjectREFR * workshopRef = GetLinkedRef_Native(ref, keyword);
         if(!workshopRef)
+        {
             return false;
+        }
 
         // 取得したオブジェクトが本当にワークショップであるか確認
         BSExtraData* extraDataWorkshop = workshopRef->extraDataList->GetByType(ExtraDataType::kExtraData_WorkshopExtraData);
         if(!extraDataWorkshop)
+        {
             return false;
+        }
 
         return true;
     }
@@ -307,7 +218,9 @@ namespace papyrusFunctions
     {
         auto it = gConfigInt.find(key.c_str());
         if(it != gConfigInt.end())
+        {
             return it->second;
+        }
 
         return 0;
     }
@@ -325,6 +238,8 @@ namespace papyrusFunctions
         gConfigInt["looting_alch_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_alch_enabled", 1, configPath);
         gConfigInt["looting_ammo_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_ammo_enabled", 1, configPath);
         gConfigInt["looting_armo_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_armo_enabled", 1, configPath);
+        gConfigInt["looting_book_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_book_enabled", 0, configPath);
+        gConfigInt["looting_book_magazine_only"] = GetPrivateProfileInt(sectionSettings, "looting_book_magazine_only", 1, configPath);
         gConfigInt["looting_cont_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_cont_enabled", 1, configPath);
         gConfigInt["looting_flor_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_flor_enabled", 1, configPath);
         gConfigInt["looting_ingr_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_ingr_enabled", 0, configPath);
@@ -332,6 +247,8 @@ namespace papyrusFunctions
         gConfigInt["looting_npc__enabled"] = GetPrivateProfileInt(sectionSettings, "looting_npc__enabled", 1, configPath);
         gConfigInt["looting_range"] = GetPrivateProfileInt(sectionSettings, "looting_range", 800, configPath);
         gConfigInt["looting_weap_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_weap_enabled", 1, configPath);
+        gConfigInt["lootman_carry_weight"] = GetPrivateProfileInt(sectionSettings, "lootman_carry_weight", 1000000, configPath);
+        gConfigInt["lootman_overweight_ignore"] = GetPrivateProfileInt(sectionSettings, "lootman_overweight_ignore", 1, configPath);
     }
 
     // ランダムなプロセスID(10桁のランダムな16進数文字列)を生成して返す
@@ -353,17 +270,19 @@ bool papyrusFunctions::RegisterFuncs(VirtualMachine* vm)
 {
     _DMESSAGE("Lootman register papyrus functions.");
 
-    vm->RegisterFunction(new NativeFunction4<StaticFunctionTag, VMArray<TESObjectREFR *>, TESObjectREFR *, UInt32, VMArray<UInt32>, VMArray<UInt32>>("FindReferencesInRange", "Lootman", papyrusFunctions::FindReferencesInRange, vm));
-    vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, VMArray<TESForm *>, TESObjectREFR *, VMArray<UInt32>, VMArray<UInt32>>("FindItemsInInventory", "Lootman", papyrusFunctions::FindItemsInInventory, vm));
-    vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, VMArray<TESForm *>, TESObjectREFR *, bool>("FindJunkOrModInInventory", "Lootman", papyrusFunctions::FindJunkOrModInInventory, vm));
+    vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, VMArray<TESForm *>, VMArray<TESForm *>, VMArray<UInt32>>("FilterAllFormByFormType", "Lootman", papyrusFunctions::FilterAllFormByFormType, vm));
+    vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, VMArray<TESObjectREFR *>, VMArray<TESObjectREFR *>, VMArray<UInt32>>("FilterAllReferenceByFormType", "Lootman", papyrusFunctions::FilterAllReferenceByFormType, vm));
+    vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, VMArray<TESObjectREFR *>, TESObjectREFR *, UInt32>("FindAllReferenceWithinRange", "Lootman", papyrusFunctions::FindAllReferenceWithinRange, vm));
+    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, VMArray<BGSListForm *>, BGSKeyword *>("FindAllFormListThatHasKeyword", "Lootman", papyrusFunctions::FindAllFormListThatHasKeyword, vm));
     vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, bool, TESObjectREFR *>("IsLinkedToWorkshop", "Lootman", papyrusFunctions::IsLinkedToWorkshop, vm));
     vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, UInt32, BSFixedString>("GetConfigInt", "Lootman", papyrusFunctions::GetConfigInt, vm));
     vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, void>("LoadConfig", "Lootman", papyrusFunctions::LoadConfig, vm));
     vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, BSFixedString>("GetRandomProcessID", "Lootman", papyrusFunctions::GetRandomProcessID, vm));
 
-    vm->SetFunctionFlags("Lootman", "FindReferencesInRangeFromType", IFunction::kFunctionFlag_NoWait);
-    vm->SetFunctionFlags("Lootman", "FindItemsInInventoryFromType", IFunction::kFunctionFlag_NoWait);
-    vm->SetFunctionFlags("Lootman", "FindJunkOrModInInventory", IFunction::kFunctionFlag_NoWait);
+    vm->SetFunctionFlags("Lootman", "FilterAllFormByFormType", IFunction::kFunctionFlag_NoWait);
+    vm->SetFunctionFlags("Lootman", "FilterAllReferenceByFormType", IFunction::kFunctionFlag_NoWait);
+    vm->SetFunctionFlags("Lootman", "FindAllReferenceWithinRange", IFunction::kFunctionFlag_NoWait);
+    vm->SetFunctionFlags("Lootman", "FindAllFormListThatHasKeyword", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "IsLinkedToWorkshop", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "GetConfigInt", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "LoadConfig", IFunction::kFunctionFlag_NoWait);
@@ -371,16 +290,3 @@ bool papyrusFunctions::RegisterFuncs(VirtualMachine* vm)
 
     return true;
 }
-
-/*
-void papyrusFunctions::Messaging(F4SEMessagingInterface::Message * msg)
-{
-    if(msg->type == F4SEMessagingInterface::kMessage_GameDataReady)
-    {
-        if(msg->data)
-        {
-            GetEventDispatcher<TESObjectLoadedEvent>()->AddEventSink(&objectLoadedShink);
-        }
-    }
-}
-*/
