@@ -12,12 +12,15 @@
 #include <stdio.h>
 #include <string>
 #include <map>
+#include <math.h>
 #include <vector>
 
 std::map<std::string, int> gConfigInt;
 
 namespace papyrusFunctions
 {
+    DECLARE_STRUCT(ScrapResult, "Lootman")
+
     struct Wrapper
     {
         TESObjectREFR * ref;
@@ -46,9 +49,9 @@ namespace papyrusFunctions
         {
             return true;
         }
-        UInt32 type;
         for(UInt32 i = 0; i < includeTypes.Length(); i++)
         {
+            UInt32 type;
             includeTypes.Get(&type, i);
             if(type > 0 && form->formType == type)
             {
@@ -58,16 +61,14 @@ namespace papyrusFunctions
         return false;
     }
 
-    VMArray<TESForm *> FilterAllFormByFormType(StaticFunctionTag *,
-                                               VMArray<TESForm *> forms,
-                                               VMArray<UInt32> filterTypes)
+    VMArray<TESForm *> FilterAllFormByFormType(StaticFunctionTag *, VMArray<TESForm *> forms, VMArray<UInt32> typeFilters)
     {
         VMArray<TESForm *> result;
-        TESForm * form = nullptr;
         for(UInt32 i = 0; i < forms.Length(); i++)
         {
+            TESForm * form = nullptr;
             forms.Get(&form, i);
-            if(_FormIsIncludeType(form, filterTypes))
+            if(_FormIsIncludeType(form, typeFilters))
             {
                 result.Push(&form);
             }
@@ -75,16 +76,14 @@ namespace papyrusFunctions
         return result;
     }
 
-    VMArray<TESObjectREFR *> FilterAllReferenceByFormType(StaticFunctionTag *,
-                                                          VMArray<TESObjectREFR *> refs,
-                                                          VMArray<UInt32> filterTypes)
+    VMArray<TESObjectREFR *> FilterAllReferenceByFormType(StaticFunctionTag *, VMArray<TESObjectREFR *> refs, VMArray<UInt32> typeFilters)
     {
         VMArray<TESObjectREFR *> result;
-        TESObjectREFR * ref = nullptr;
         for(UInt32 i = 0; i < refs.Length(); i++)
         {
+            TESObjectREFR * ref = nullptr;
             refs.Get(&ref, i);
-            if(ref && _FormIsIncludeType(ref->baseForm, filterTypes))
+            if(ref && _FormIsIncludeType(ref->baseForm, typeFilters))
             {
                 result.Push(&ref);
             }
@@ -92,9 +91,7 @@ namespace papyrusFunctions
         return result;
     }
 
-    VMArray<TESObjectREFR *> FindAllReferenceWithinRange(StaticFunctionTag *,
-                                                         TESObjectREFR * player,
-                                                         UInt32 range)
+    VMArray<TESObjectREFR *> FindAllReferenceWithinRange(StaticFunctionTag *, TESObjectREFR * player, UInt32 range)
     {
         std::vector<Wrapper> vec;
         VMArray<TESObjectREFR *> result;
@@ -177,6 +174,100 @@ namespace papyrusFunctions
         return result;
     }
 
+    VMArray<BGSMod::Attachment::Mod *> _GetAllMods(ExtraDataList * extraDataList)
+    {
+        VMArray<BGSMod::Attachment::Mod *> result;
+        if(!extraDataList)
+        {
+            return result;
+        }
+        BSExtraData * extraData = extraDataList->GetByType(ExtraDataType::kExtraData_ObjectInstance);
+        if(!extraData)
+        {
+            return result;
+        }
+        BGSObjectInstanceExtra * objectModData = DYNAMIC_CAST(extraData, BSExtraData, BGSObjectInstanceExtra);
+        if(!objectModData)
+        {
+            return result;
+        }
+        auto data = objectModData->data;
+        if(!data || !data->forms)
+        {
+            return result;
+        }
+        for(UInt32 i = 0; i < (data->blockSize / sizeof(BGSObjectInstanceExtra::Data::Form)); i++)
+        {
+            BGSMod::Attachment::Mod * objectMod = (BGSMod::Attachment::Mod *)Runtime_DynamicCast(LookupFormByID(data->forms[i].formId), RTTI_TESForm, RTTI_BGSMod__Attachment__Mod);
+
+            if(!objectMod)
+            {
+                continue;
+            }
+
+            result.Push(&objectMod);
+        }
+        return result;
+    }
+
+    // 対象のオブジェクトが持つインベントリのアイテムをすべて取得し、フィルターにかけたものを返す。
+    VMArray<TESForm *> GetInventoryItemsWithFilter(StaticFunctionTag *, TESObjectREFR * ref, VMArray<UInt32> typeFilters, bool legendaryOnly)
+    {
+        VMArray<TESForm *> result;
+        if(!ref)
+        {
+            return result;
+        }
+
+        BGSInventoryList * inventoryList = ref->inventoryList;
+        if(inventoryList)
+        {
+            inventoryList->inventoryLock.LockForRead();
+
+            for(int i = 0; i < inventoryList->items.count; i++)
+            {
+                BGSInventoryItem item;
+                inventoryList->items.GetNthItem(i, item);
+                
+                TESForm * form = item.form;
+                if(_FormIsIncludeType(form, typeFilters))
+                {
+                    if(legendaryOnly && (form->formType == FormType::kFormType_ARMO || form->formType == FormType::kFormType_WEAP))
+                    {
+                        item.stack->Visit([&](BGSInventoryItem::Stack * stack)
+                        {
+                            ExtraDataList * extraDataList = stack->extraData;
+                            if(extraDataList)
+                            {
+                                VMArray<BGSMod::Attachment::Mod *> mods = _GetAllMods(extraDataList);
+                                for(UInt32 i = 0; i < mods.Length(); i++)
+                                {
+                                    BGSMod::Attachment::Mod * objectMod = nullptr;
+                                    mods.Get(&objectMod, i);
+
+                                    if(objectMod->flags == 25)
+                                    {
+                                        result.Push(&form);
+                                        return false;
+                                    }
+                                }
+                            }
+                            return true;
+                        });
+                    }
+                    else
+                    {
+                        result.Push(&form);
+                    }
+                }
+            }
+
+            inventoryList->inventoryLock.Unlock();
+        }
+
+        return result;
+    }
+    
     // オブジェクトがワークショップとリンクしているか評価して返す
     // ロジックはPapyrusObjectReference.cppのAttachWireLatentから拝借
     bool IsLinkedToWorkshop(StaticFunctionTag *, TESObjectREFR * ref)
@@ -212,6 +303,159 @@ namespace papyrusFunctions
 
         return true;
     }
+
+    void _CollectScrapResult(BGSComponent * component, int count, VMArray<ScrapResult> * result)
+    {
+        if(!component)
+        {
+            return;
+        }
+        TESObjectMISC * misc = DYNAMIC_CAST(component, TESForm, TESObjectMISC);
+        if(misc)
+        {
+            ScrapResult scrapResult;
+            scrapResult.Set("misc", misc);
+            scrapResult.Set("count", (UInt32)count);
+            result->Push(&scrapResult);
+        }
+        else
+        {
+            if(!component->scrapItem || !component->scrapScalar)
+            {
+                return;
+            }
+            misc = component->scrapItem;
+            TESGlobal * scalar = component->scrapScalar;
+
+            ScrapResult scrapResult;
+            scrapResult.Set("misc", misc);
+            scrapResult.Set("count", (UInt32)ceil(count * scalar->value));
+            result->Push(&scrapResult);
+        }
+    }
+
+    void _ScrapMISC(TESObjectMISC * misc, VMArray<ScrapResult> * result)
+    {
+        if(!misc->components)
+        {
+            return;
+        }
+
+        for(UInt32 i = 0; i < (misc->components->count); i++)
+        {
+            TESObjectMISC::Component cp;
+            misc->components->GetNthItem(i, cp);
+
+            _CollectScrapResult(cp.component, cp.count, result);
+        }
+    }
+
+    void _ScrapObjectMOD(ExtraDataList * extraDataList, VMArray<ScrapResult> * result)
+    {
+        VMArray<BGSMod::Attachment::Mod *> mods = _GetAllMods(extraDataList);
+        for(UInt32 i = 0; i < mods.Length(); i++)
+        {
+            BGSMod::Attachment::Mod * objectMod = nullptr;
+            mods.Get(&objectMod, i);
+
+            auto list = (*g_dataHandler)->arrCOBJ;
+            for(UInt32 j = 0; j < list.count; j++)
+            {
+                BGSConstructibleObject * cobj = nullptr;
+                list.GetNthItem(j, cobj);
+                if(!cobj || !cobj->createdObject || !cobj->components)
+                {
+                    continue;
+                }
+                if(cobj->createdObject->formID == objectMod->formID)
+                {
+                    for(UInt32 k = 0; k < (cobj->components->count); k++)
+                    {
+                        BGSConstructibleObject::Component cp;
+                        cobj->components->GetNthItem(k, cp);
+
+                        _CollectScrapResult(cp.component, cp.count, result);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    void _ScrapForm(TESForm * form, VMArray<ScrapResult> * result)
+    {
+        auto list = (*g_dataHandler)->arrCOBJ;
+        for(UInt32 i = 0; i < list.count; i++)
+        {
+            BGSConstructibleObject * cobj = nullptr;
+            list.GetNthItem(i, cobj);
+            if(!cobj || !cobj->createdObject || !cobj->components)
+            {
+                continue;
+            }
+
+            TESForm * createdObject = cobj->createdObject;
+            BGSListForm * formList = DYNAMIC_CAST(createdObject, TESForm, BGSListForm);
+            if(formList)
+            {
+                auto forms = formList->forms;
+                for(UInt32 j = 0; j < forms.count; j++)
+                {
+                    TESForm * item = nullptr;
+                    forms.GetNthItem(j, item);
+                    if(item && item->formID == form->formID)
+                    {
+                        for(UInt32 k = 0; k < (cobj->components->count); k++)
+                        {
+                            BGSConstructibleObject::Component cp;
+                            cobj->components->GetNthItem(k, cp);
+                            
+                            _CollectScrapResult(cp.component, cp.count, result);
+                        }
+                    }
+                }
+            }
+            else if(createdObject->formID == form->formID)
+            {
+                for(UInt32 j = 0; j < (cobj->components->count); j++)
+                {
+                    BGSConstructibleObject::Component cp;
+                    cobj->components->GetNthItem(j, cp);
+
+                    _CollectScrapResult(cp.component, cp.count, result);
+                }
+            }
+        }
+    }
+
+    // オブジェクトをスクラップした場合の結果を返す
+    VMArray<ScrapResult> Scrap(StaticFunctionTag *, VMRefOrInventoryObj * ref)
+    {
+        VMArray<ScrapResult> result;
+        if(!ref)
+        {
+            return result;
+        }
+        TESForm * baseForm = nullptr;
+        ExtraDataList * extraDataList = nullptr;
+        ref->GetExtraData(&baseForm, &extraDataList);
+        if(baseForm)
+        {
+            _DMESSAGE("Name: %s", baseForm->GetFullName());
+            if(baseForm->formType == FormType::kFormType_MISC)
+            {
+                TESObjectMISC * misc = DYNAMIC_CAST(baseForm, TESForm, TESObjectMISC);
+                _ScrapMISC(misc, &result);
+            }
+            else if(baseForm->formType == FormType::kFormType_ARMO || baseForm->formType == FormType::kFormType_WEAP)
+            {
+                _ScrapObjectMOD(extraDataList, &result);
+                _ScrapForm(baseForm, &result);
+            }
+        }
+        return result;
+    }
+    
 
     // キー文字列に対応する、Lootmanのコンフィグ値を取得する
     UInt32 GetConfigInt(StaticFunctionTag *, BSFixedString key)
@@ -274,16 +518,23 @@ bool papyrusFunctions::RegisterFuncs(VirtualMachine* vm)
     vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, VMArray<TESObjectREFR *>, VMArray<TESObjectREFR *>, VMArray<UInt32>>("FilterAllReferenceByFormType", "Lootman", papyrusFunctions::FilterAllReferenceByFormType, vm));
     vm->RegisterFunction(new NativeFunction2<StaticFunctionTag, VMArray<TESObjectREFR *>, TESObjectREFR *, UInt32>("FindAllReferenceWithinRange", "Lootman", papyrusFunctions::FindAllReferenceWithinRange, vm));
     vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, VMArray<BGSListForm *>, BGSKeyword *>("FindAllFormListThatHasKeyword", "Lootman", papyrusFunctions::FindAllFormListThatHasKeyword, vm));
+    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, VMArray<ScrapResult>, VMRefOrInventoryObj *>("Scrap", "Lootman", papyrusFunctions::Scrap, vm));
+    vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, VMArray<TESForm *>, TESObjectREFR *, VMArray<UInt32>, bool>("GetInventoryItemsWithFilter", "Lootman", papyrusFunctions::GetInventoryItemsWithFilter, vm));
     vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, bool, TESObjectREFR *>("IsLinkedToWorkshop", "Lootman", papyrusFunctions::IsLinkedToWorkshop, vm));
+
     vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, UInt32, BSFixedString>("GetConfigInt", "Lootman", papyrusFunctions::GetConfigInt, vm));
     vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, void>("LoadConfig", "Lootman", papyrusFunctions::LoadConfig, vm));
     vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, BSFixedString>("GetRandomProcessID", "Lootman", papyrusFunctions::GetRandomProcessID, vm));
+
 
     vm->SetFunctionFlags("Lootman", "FilterAllFormByFormType", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "FilterAllReferenceByFormType", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "FindAllReferenceWithinRange", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "FindAllFormListThatHasKeyword", IFunction::kFunctionFlag_NoWait);
+    vm->SetFunctionFlags("Lootman", "GetAllComponents", IFunction::kFunctionFlag_NoWait);
+    vm->SetFunctionFlags("Lootman", "GetInventoryItemsWithFilter", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "IsLinkedToWorkshop", IFunction::kFunctionFlag_NoWait);
+    
     vm->SetFunctionFlags("Lootman", "GetConfigInt", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "LoadConfig", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "GetRandomProcessID", IFunction::kFunctionFlag_NoWait);
