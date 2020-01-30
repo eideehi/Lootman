@@ -10,12 +10,9 @@
 
 #include <algorithm>
 #include <stdio.h>
-#include <string>
-#include <map>
 #include <math.h>
 #include <vector>
 
-std::map<std::string, int> gConfigInt;
 
 namespace papyrusFunctions
 {
@@ -441,7 +438,6 @@ namespace papyrusFunctions
         ref->GetExtraData(&baseForm, &extraDataList);
         if(baseForm)
         {
-            _DMESSAGE("Name: %s", baseForm->GetFullName());
             if(baseForm->formType == FormType::kFormType_MISC)
             {
                 TESObjectMISC * misc = DYNAMIC_CAST(baseForm, TESForm, TESObjectMISC);
@@ -456,45 +452,6 @@ namespace papyrusFunctions
         return result;
     }
     
-
-    // キー文字列に対応する、Lootmanのコンフィグ値を取得する
-    UInt32 GetConfigInt(StaticFunctionTag *, BSFixedString key)
-    {
-        auto it = gConfigInt.find(key.c_str());
-        if(it != gConfigInt.end())
-        {
-            return it->second;
-        }
-
-        return 0;
-    }
-
-    // Lootmanのコンフィグを、ファイルから読み込み反映する
-    void LoadConfig(StaticFunctionTag *)
-    {
-        const char * configPath = ".\\Data\\F4SE\\Plugins\\lootman.ini";
-        const char * sectionSettings = "settings";
-
-        gConfigInt["hotkey_open_inevtnory_combination"] = GetPrivateProfileInt(sectionSettings, "hotkey_open_inevtnory_combination", 160, configPath);
-        gConfigInt["hotkey_open_inevtnory_main"] = GetPrivateProfileInt(sectionSettings, "hotkey_open_inevtnory_main", 76, configPath);
-        gConfigInt["hotkey_toggle_looting_combination"] = GetPrivateProfileInt(sectionSettings, "hotkey_toggle_looting_combination", 163, configPath);
-        gConfigInt["hotkey_toggle_looting_main"] = GetPrivateProfileInt(sectionSettings, "hotkey_toggle_looting_main", 76, configPath);
-        gConfigInt["looting_alch_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_alch_enabled", 1, configPath);
-        gConfigInt["looting_ammo_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_ammo_enabled", 1, configPath);
-        gConfigInt["looting_armo_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_armo_enabled", 1, configPath);
-        gConfigInt["looting_book_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_book_enabled", 0, configPath);
-        gConfigInt["looting_book_magazine_only"] = GetPrivateProfileInt(sectionSettings, "looting_book_magazine_only", 1, configPath);
-        gConfigInt["looting_cont_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_cont_enabled", 1, configPath);
-        gConfigInt["looting_flor_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_flor_enabled", 1, configPath);
-        gConfigInt["looting_ingr_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_ingr_enabled", 0, configPath);
-        gConfigInt["looting_misc_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_misc_enabled", 1, configPath);
-        gConfigInt["looting_npc__enabled"] = GetPrivateProfileInt(sectionSettings, "looting_npc__enabled", 1, configPath);
-        gConfigInt["looting_range"] = GetPrivateProfileInt(sectionSettings, "looting_range", 800, configPath);
-        gConfigInt["looting_weap_enabled"] = GetPrivateProfileInt(sectionSettings, "looting_weap_enabled", 1, configPath);
-        gConfigInt["lootman_carry_weight"] = GetPrivateProfileInt(sectionSettings, "lootman_carry_weight", 1000000, configPath);
-        gConfigInt["lootman_overweight_ignore"] = GetPrivateProfileInt(sectionSettings, "lootman_overweight_ignore", 1, configPath);
-    }
-
     // ランダムなプロセスID(10桁のランダムな16進数文字列)を生成して返す
     // デバッグログの処理単位IDとして使用する
     // ロジックは次のURLから拝借 # https://stackoverflow.com/questions/12110209/how-to-fill-a-string-with-random-hex-characters
@@ -522,8 +479,6 @@ bool papyrusFunctions::RegisterFuncs(VirtualMachine* vm)
     vm->RegisterFunction(new NativeFunction3<StaticFunctionTag, VMArray<TESForm *>, TESObjectREFR *, VMArray<UInt32>, bool>("GetInventoryItemsWithFilter", "Lootman", papyrusFunctions::GetInventoryItemsWithFilter, vm));
     vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, bool, TESObjectREFR *>("IsLinkedToWorkshop", "Lootman", papyrusFunctions::IsLinkedToWorkshop, vm));
 
-    vm->RegisterFunction(new NativeFunction1<StaticFunctionTag, UInt32, BSFixedString>("GetConfigInt", "Lootman", papyrusFunctions::GetConfigInt, vm));
-    vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, void>("LoadConfig", "Lootman", papyrusFunctions::LoadConfig, vm));
     vm->RegisterFunction(new NativeFunction0<StaticFunctionTag, BSFixedString>("GetRandomProcessID", "Lootman", papyrusFunctions::GetRandomProcessID, vm));
 
 
@@ -535,8 +490,6 @@ bool papyrusFunctions::RegisterFuncs(VirtualMachine* vm)
     vm->SetFunctionFlags("Lootman", "GetInventoryItemsWithFilter", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "IsLinkedToWorkshop", IFunction::kFunctionFlag_NoWait);
     
-    vm->SetFunctionFlags("Lootman", "GetConfigInt", IFunction::kFunctionFlag_NoWait);
-    vm->SetFunctionFlags("Lootman", "LoadConfig", IFunction::kFunctionFlag_NoWait);
     vm->SetFunctionFlags("Lootman", "GetRandomProcessID", IFunction::kFunctionFlag_NoWait);
 
     return true;
