@@ -1,5 +1,9 @@
 # Lootman
-アイテムを自動収集するModで使用されているDLLのソースコード
+DLL source code used in a mod that loots items automatically.
 
-# ライセンス
-同梱されているF4SEのソースコードを除き、MITライセンスのもとで公開されています。
+# License
+Except for the bundled libraries and the F4SE source code, they are released under the MIT license.
+
+# Credits
+- [F4SE](https://f4se.silverlock.org/)
+- [RapidJSON](https://github.com/Tencent/rapidjson)

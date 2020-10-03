@@ -1,9 +1,10 @@
+﻿#include <shlobj.h>
+
 #include "f4se/PluginAPI.h"
 #include "f4se_common/f4se_version.h"
 
-#include <shlobj.h>
-
-#include "PapyrusFunctions.h"
+#include "Globals.h"
+#include "PapyrusLootman.h"
 
 IDebugLog gLog;
 
@@ -14,42 +15,60 @@ extern "C"
 {
     bool F4SEPlugin_Query(const F4SEInterface * f4se, PluginInfo * info)
     {
-        //gLog.SetLogLevel(IDebugLog::kLevel_DebugMessage);
         gLog.OpenRelative(CSIDL_MYDOCUMENTS, "\\My Games\\Fallout4\\F4SE\\lootman.log");
 
-        _MESSAGE("lootman");
+        _MESSAGE(">> Lootman plugin query phase start.");
 
         info->infoVersion = PluginInfo::kInfoVersion;
         info->name = "Lootman";
-        info->version = 11016305;
+        info->version = 11016306;// FO4 1.10.163-06
 
         if(f4se->isEditor)
         {
-            _FATALERROR("loaded in editor, marking as incompatible");
+            _FATALERROR(">>   Loaded in editor, marking as incompatible.");
             return false;
         }
-        else if(f4se->runtimeVersion != RUNTIME_VERSION_1_10_163)
+
+        if(f4se->runtimeVersion != RUNTIME_VERSION_1_10_163)
         {
-            _FATALERROR("unsupported runtime version: %08X", f4se->runtimeVersion);
+            _FATALERROR(">>   Unsupported runtime version: %08X", f4se->runtimeVersion);
             return false;
         }
 
         papyrus = (F4SEPapyrusInterface *)f4se->QueryInterface(kInterface_Papyrus);
         if(!papyrus)
         {
-            _FATALERROR("couldn't get papyrus interface");
+            _FATALERROR(">>   Couldn't get papyrus interface");
             return false;
         }
 
+        _MESSAGE(">> Lootman plugin query phase end.");
         return true;
     }
 
     bool F4SEPlugin_Load(const F4SEInterface * f4se)
     {
-        if(papyrus)
-            papyrus->Register(papyrusFunctions::RegisterFuncs);
+        _MESSAGE(">> Lootman plugin load phase start.");
 
-        _DMESSAGE("Lootman plugin is loaded.");
+        if(!Globals::Initialize())
+        {
+            _FATALERROR(">>   Failed to initialization for globals.");
+            return false;
+        }
+
+        if(!papyrus)
+        {
+            _FATALERROR(">>   Couldn't get papyrus interface.");
+            return false;
+        }
+
+        if(!papyrus->Register(PapyrusLootman::RegisterFuncs))
+        {
+            _FATALERROR(">>   Failed to register papyrus functions.");
+            return false;
+        }
+
+        _MESSAGE(">> Lootman plugin load phase end.");
         return true;
     }
 }
