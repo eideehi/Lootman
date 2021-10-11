@@ -13,22 +13,22 @@
 
 const char * _FlagsToBinaryString(UInt64 flags)
 {
-    return std::bitset< 64 >( flags ).to_string().c_str();
+    return BSFixedString(std::bitset< 64 >( flags ).to_string().c_str());
 }
 
 const char * _FlagsToBinaryString(UInt32 flags)
 {
-    return std::bitset< 32 >( flags ).to_string().c_str();
+    return BSFixedString(std::bitset< 32 >( flags ).to_string().c_str());
 }
 
 const char * _FlagsToBinaryString(UInt16 flags)
 {
-    return std::bitset< 16 >( flags ).to_string().c_str();
+    return BSFixedString(std::bitset< 16 >( flags ).to_string().c_str());
 }
 
 const char * _FlagsToBinaryString(SInt32 flags)
 {
-    return std::bitset< 32 >( flags ).to_string().c_str();
+    return BSFixedString(std::bitset< 32 >( flags ).to_string().c_str());
 }
 
 const char * _FormTypeToString(UInt8 formType)
@@ -100,7 +100,7 @@ const char * _MakeIndent(int depth, std:: string indent = "  ")
     {
         ss << indent;
     }
-    return ss.str().c_str();
+    return BSFixedString(ss.str().c_str());
 }
 
 void _TraceExtraDataList(const char * processId, ExtraDataList * extraDataList, int indent)
@@ -401,7 +401,7 @@ const char * _GetRandomProcessID()
         ss << hex[rand() % 16];
     }
 
-    return ss.str().c_str();
+    return BSFixedString(ss.str().c_str());
 }
 
 #endif

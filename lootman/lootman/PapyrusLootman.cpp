@@ -151,7 +151,7 @@ namespace PapyrusLootman
                     continue;
                 }
 
-                //if(!obj->unkF0) continue;// NPC_ は灰の山を処理するため、3Dロードされていなくても必要になるのでコメント化
+                if((obj->flags & TESForm::kFlag_IsDeleted) != 0) continue;// 削除済みのオブジェクトは無視
 
                 TESForm * form = obj->baseForm;
                 if(!_IsPlayable(form) || form->formType != formType)
@@ -160,11 +160,9 @@ namespace PapyrusLootman
                 }
 
 #ifdef _DEBUG
-                if(_IsNativeObject(ref)) { _MESSAGE("| %s | NATIVE OBJECT ?", processId); _TraceTESObjectREFR(processId, obj, 0); }
+                if(_IsNativeObject(obj)) { _MESSAGE("| %s | NATIVE OBJECT ?", processId); _TraceTESObjectREFR(processId, obj, 0); }
 #endif
-                if(_IsNativeObject(ref)) continue;// 水のようなネイティブオブジェクトの中でもパピルスにわたすとエラーになりそうなものを弾いてみる
-
-                //if(form->formType == FormType::kFormType_MISC && (ref->flags & 8390656)!=0) continue;// MISC のみエラーログが頻発したため、削除済みっぽいものを弾いてみる。今は必要ないかもしれないのでコメント化
+                if(_IsNativeObject(obj)) continue;// パピルスにバインド不可能なネイティブオブジェクトを無視
 
                 NiPoint3 pos2 = obj->pos;
                 float x = pos1.x - pos2.x;
@@ -355,7 +353,7 @@ namespace PapyrusLootman
             }
 
 #ifdef _DEBUG
-            _TraceBGSInventoryItem(_GetRandomProcessID().c_str() ,&item, 0);
+            _TraceBGSInventoryItem(_GetRandomProcessID(), &item, 0);
 #endif
 
             bool hasLegendaryMod = false;

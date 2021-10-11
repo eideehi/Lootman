@@ -21,7 +21,7 @@ extern "C"
 
         info->infoVersion = PluginInfo::kInfoVersion;
         info->name = "Lootman";
-        info->version = 11016306;// FO4 1.10.163-06
+        info->version = 11016307;// FO4 1.10.163-07
 
         if(f4se->isEditor)
         {
