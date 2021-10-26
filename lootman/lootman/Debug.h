@@ -7,7 +7,6 @@
 #include "f4se/GameForms.h"
 #include "f4se/GameExtraData.h"
 
-
 const char * _FlagsToBinaryString(UInt64 flags);
 
 const char * _FlagsToBinaryString(UInt32 flags);

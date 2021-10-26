@@ -1,4 +1,4 @@
-﻿#include "Globals.h"
+#include "InjectionData.h"
 
 #include <fstream>
 #include <filesystem>
@@ -10,13 +10,13 @@
 #include "lib/rapidjson/stringbuffer.h"
 #include "lib/rapidjson/prettywriter.h"
 
-namespace Globals
+namespace InjectionData
 {
     Document formListData;
 
     bool Initialize()
     {
-        _MESSAGE(">>   Lootman globals initialization start.");
+        _MESSAGE(">>   Lootman injection data initialization start.");
 
         const char * identifies[] = {
             "AllowedActivatorList",
@@ -40,7 +40,7 @@ namespace Globals
 
         formListData.SetObject();
 
-        // 参考にしたページ https://stackoverflow.com/questions/40013355/how-to-merge-two-json-file-using-rapidjson
+        // Pages used for reference: https://stackoverflow.com/questions/40013355/how-to-merge-two-json-file-using-rapidjson
         auto merge = [](Value  &dest, Value  &src, Document::AllocatorType &allocator, const char * key)
         {
             auto srcIt = src.FindMember(key);
@@ -78,7 +78,7 @@ namespace Globals
             return true;
         };
 
-        // 参考にしたページ https://qiita.com/sukakako/items/c329878ce8d622bfd801
+        // Pages used for reference: https://qiita.com/sukakako/items/c329878ce8d622bfd801
         for(std::tr2::sys::directory_iterator it(dir); it != std::tr2::sys::directory_iterator(); it++)
         {
             std::tr2::sys::path file = dir / (std::tr2::sys::path)*it;
@@ -121,7 +121,7 @@ namespace Globals
         _MESSAGE(">>     Merged json:");
         _MESSAGE(sb.GetString());
 
-        _MESSAGE(">>   Lootman globals initialization end.");
+        _MESSAGE(">>   Lootman injection data initialization end.");
         return true;
     }
 }

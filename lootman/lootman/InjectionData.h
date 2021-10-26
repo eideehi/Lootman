@@ -1,10 +1,9 @@
-﻿#pragma once
 
 #include "lib/rapidjson/document.h"
 
 using namespace rapidjson;
 
-namespace Globals
+namespace InjectionData
 {
     bool Initialize();
 

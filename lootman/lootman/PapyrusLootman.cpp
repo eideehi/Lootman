@@ -1,8 +1,9 @@
 ﻿#include "PapyrusLootman.h"
 
 #include <algorithm>
-#include <vector>
 #include <map>
+#include <unordered_set>
+#include <vector>
 
 #include "f4se/PapyrusVM.h"
 #include "f4se/PapyrusNativeFunctions.h"
@@ -12,7 +13,8 @@
 #include "f4se/GameReferences.h"
 #include "f4se/GameRTTI.h"
 
-#include "Globals.h"
+#include "FormIDCache.h"
+#include "InjectionData.h"
 
 #ifdef _DEBUG
 
@@ -41,12 +43,12 @@ namespace PapyrusLootman
 
         bool operator<(const ObjectReferenceWithDistance &other) const
         {
-            // Papyrusのループでは逆順で走査するので、近い方から使用するために降順でソートさせる
+            // The Papyrus loop scans in reverse order, so it sorts in descending order so that it is processed from the one closest to the player
             return distance > other.distance;
         }
     };
 
-    // エクストラデータからすべてのModデータを取得して返す
+    // Get all mod data from extradata
     VMArray<BGSMod::Attachment::Mod *> _GetAllMods(ExtraDataList * extraDataList)
     {
         VMArray<BGSMod::Attachment::Mod *> result;
@@ -89,7 +91,7 @@ namespace PapyrusLootman
         return result;
     }
 
-    // Mod一覧の中にレジェンダリーが存在するか評価して返す
+    // Verify that the Legendary is present in the Mod list
     bool _HasLegendaryMod(VMArray<BGSMod::Attachment::Mod *> mods)
     {
         for(UInt32 i = 0; i < mods.Length(); i++)
@@ -97,33 +99,33 @@ namespace PapyrusLootman
             BGSMod::Attachment::Mod * objectMod = nullptr;
             mods.Get(&objectMod, i);
 
+            // The 25th bit is the flag for the Legendary item (probably)
             if(objectMod->flags == 25)
             {
-                // おそらく objectMod->flags == 25 はレジェンダリー
                 return true;
             }
         }
         return false;
     }
 
-    // フォームがプレイアプルであるか評価して返す
+    // Verify that the form is playable
     bool _IsPlayable(TESForm * form)
     {
         return form && (form->flags & 1 << 2) == 0;
     }
 
-    // オブジェクト参照がパピルスで操作不可能なネイティブオブジェクトであるか評価して返す
+    // Verify that an object reference is a native object that cannot be manipulated by papyrus
     bool _IsNativeObject(TESObjectREFR * ref)
     {
         return (ref->formID >> 24) == 0xFF && (ref->baseForm->formID >> 24) == 0xFF && (ref->flags & 1 << 14) != 0;
     }
 
-    // 対象のオブジェクト参照を起点に、指定の範囲内に存在するオブジェクト参照を取得し、指定のフォームタイプでフィルタリングして返す
+    // Retrieves objects that exist within a certain range starting from a specified object, and returns the objects filtered by form type
     VMArray<TESObjectREFR *> FindAllReferencesOfFormType(StaticFunctionTag *, TESObjectREFR * ref, UInt32 range, UInt32 formType)
     {
 #ifdef _DEBUG
         const char * processId = _GetRandomProcessID();
-        _MESSAGE("| %s | FIND REFERENCE START", processId);
+        _MESSAGE("| %s | *** FindAllReferencesOfFormType start ***", processId);
 #endif
         VMArray<TESObjectREFR *> result;
 
@@ -138,7 +140,8 @@ namespace PapyrusLootman
             return result;
         }
 
-        std::vector<ObjectReferenceWithDistance> tmp;
+        std::unordered_set<UInt32> knownId;
+        std::vector<ObjectReferenceWithDistance> foundObjects;
         NiPoint3 pos1 = ref->pos;
 
         auto find = [&](TESObjectCELL * cell)
@@ -151,18 +154,32 @@ namespace PapyrusLootman
                     continue;
                 }
 
-                if((obj->flags & TESForm::kFlag_IsDeleted) != 0) continue;// 削除済みのオブジェクトは無視
-
-                TESForm * form = obj->baseForm;
-                if(!_IsPlayable(form) || form->formType != formType)
+                // Ignore deleted or disabled objects.
+                if((obj->flags & (TESForm::kFlag_IsDeleted | TESForm::kFlag_IsDisabled)) != 0)
                 {
                     continue;
                 }
 
+                TESForm * form = obj->baseForm;
+                if(form->formType != formType || !_IsPlayable(form))
+                {
+                    continue;
+                }
+
+                // Ignore native objects that cannot be bound to papyrus
+                if(_IsNativeObject(obj))
+                {
 #ifdef _DEBUG
-                if(_IsNativeObject(obj)) { _MESSAGE("| %s | NATIVE OBJECT ?", processId); _TraceTESObjectREFR(processId, obj, 0); }
+                    _MESSAGE("| %s |   ** Maybe a native object **", processId);
+                    _TraceTESObjectREFR(processId, obj, 2);
 #endif
-                if(_IsNativeObject(obj)) continue;// パピルスにバインド不可能なネイティブオブジェクトを無視
+                    continue;
+                }
+
+                if(!knownId.insert(obj->formID).second)
+                {
+                    continue;
+                }
 
                 NiPoint3 pos2 = obj->pos;
                 float x = pos1.x - pos2.x;
@@ -170,50 +187,60 @@ namespace PapyrusLootman
                 float z = pos1.z - pos2.z;
                 float distance = std::sqrtf((x * x) + (y * y) + (z * z));
 
-                if(distance != 0 && (range == 0 || distance <= range))
+                // Ignore objects with a distance of 0 because they are players
+                if(distance == 0)
                 {
-#ifdef _DEBUG
-                    _TraceReferenceFlags(processId, obj, 0);
-#endif
-                    tmp.push_back(ObjectReferenceWithDistance(obj, distance));
+                    continue;
+                }
+
+                if(distance <= range)
+                {
+                    foundObjects.push_back(ObjectReferenceWithDistance(obj, distance));
                 }
             }
         };
 
         find(cell);
 
-        TESForm * form = LookupFormByID(cell->preVisCell);
-        if(form)
         {
-            TESObjectCELL * preVisCell = DYNAMIC_CAST(form, TESForm, TESObjectCELL);
-            if(preVisCell && (preVisCell->flags & 16) != 0)
+            SimpleLocker locker(&FormIDCache::lock);
+            for(auto it = FormIDCache::cells.begin(); it != FormIDCache::cells.end(); ++it)
             {
-                find(preVisCell);
+                cell = DYNAMIC_CAST(LookupFormByID(*it), TESForm, TESObjectCELL);
+                // Not explore cells that are not 3D loaded
+                if(cell && (cell->flags & 16) != 0)
+                {
+                    find(cell);
+                }
             }
         }
 
-        std::sort(tmp.begin(), tmp.end());
-        for(ObjectReferenceWithDistance &element : tmp)
+#ifdef _DEBUG
+        _MESSAGE("| %s |   ** Found objects **", processId);
+#endif
+        std::sort(foundObjects.begin(), foundObjects.end());
+        for(ObjectReferenceWithDistance &element : foundObjects)
         {
 #ifdef _DEBUG
-            _MESSAGE("| %s | Distance: [%f]", processId, element.distance);
-            _TraceTESObjectREFR(processId, element.ref, 0);
+            _MESSAGE("| %s |     Distance: [%f]", processId, element.distance);
+            _TraceTESObjectREFR(processId, element.ref, 2);
+            _TraceReferenceFlags(processId, element.ref, 3);
 #endif
             result.Push(&element.ref);
         }
 
 #ifdef _DEBUG
-        _MESSAGE("| %s | FIND REFERENCE END", processId);
+        _MESSAGE("| %s | *** FindAllReferencesOfFormType end ***", processId);
 #endif
         return result;
     }
 
-    // 対象のオブジェクト参照のインベントリから、指定のフォームタイプのアイテムのみ取得して返す
+    // Get and return only items of a specified form type from an inventory of object references
     VMArray<TESForm *> GetInventoryItemsOfFormTypes(StaticFunctionTag *, TESObjectREFR * ref, VMArray<UInt32> formTypes)
     {
 #ifdef _DEBUG
         const char * processId = _GetRandomProcessID();
-        _MESSAGE("| %s | FIND INVENTORY ITEMS START", processId);
+        _MESSAGE("| %s | *** GetInventoryItemsOfFormTypes start ***", processId);
 #endif
         VMArray<TESForm *> result;
 
@@ -223,7 +250,7 @@ namespace PapyrusLootman
         }
 
 #ifdef _DEBUG
-        _MESSAGE("| %s | Target: [Name=%s, ID=%08X]", processId, CALL_MEMBER_FN(ref, GetReferenceName)(), ref->formID);
+        _MESSAGE("| %s |   Target: [Name=%s, ID=%08X]", processId, CALL_MEMBER_FN(ref, GetReferenceName)(), ref->formID);
 #endif
 
         BGSInventoryList * inventoryList = ref->inventoryList;
@@ -238,6 +265,11 @@ namespace PapyrusLootman
         {
             BGSInventoryItem item;
             inventoryList->items.GetNthItem(i, item);
+
+#ifdef _DEBUG
+            _MESSAGE("| %s |   [Item %d]", processId, i);
+            _TraceBGSInventoryItem(processId, &item, 2);
+#endif
 
             TESForm * form = item.form;
             if(!_IsPlayable(form))
@@ -275,10 +307,6 @@ namespace PapyrusLootman
                 continue;
             }
 
-#ifdef _DEBUG
-            _TraceBGSInventoryItem(processId, &item, 0);
-#endif
-
             if(form->formType == FormType::kFormType_WEAP)
             {
                 bool isDroppedWeapon = false;
@@ -287,6 +315,9 @@ namespace PapyrusLootman
                     isDroppedWeapon = (stack->flags & 1 << 5) != 0;
                     return !isDroppedWeapon;
                 });
+#ifdef _DEBUG
+                _MESSAGE("| %s |       Is dropped weapon: %s", processId, isDroppedWeapon ? "true" : "false");
+#endif
                 if(isDroppedWeapon)
                 {
                     continue;
@@ -299,13 +330,12 @@ namespace PapyrusLootman
         inventoryList->inventoryLock.Unlock();
 
 #ifdef _DEBUG
-        _MESSAGE("| %s | FIND INVENTORY ITEMS END", processId);
+        _MESSAGE("| %s | *** GetInventoryItemsOfFormTypes end ***", processId);
 #endif
         return result;
     }
 
-    // 対象のオブジェクト参照がレジェンダリーアイテムであるか評価して返す
-    // オブジェクト参照のフォームがプレイアブルでない、あるいは武器でも防具でもない場合はfalseを返す
+    // Verify the object is a Legendary item. Returns false if the object is not playable, or if it is neither a weapon nor armor
     bool IsLegendaryItem(StaticFunctionTag *, VMRefOrInventoryObj * ref)
     {
         if(!ref)
@@ -324,8 +354,7 @@ namespace PapyrusLootman
         return _HasLegendaryMod(_GetAllMods(extraDataList));
     }
 
-    // 対象のオブジェクト参照が指定されたフォームのレジェンダリーアイテムを所持しているか評価して返す
-    // フォームがプレイアブルでない、あるいは武器でも防具でもない場合はfalseを返す
+    // Verify the existence of the specified item's legendary in the object's inventory. Returns false if the item is not playable, or if it is neither a weapon nor armor
     bool HasLegendaryItem(StaticFunctionTag *, TESObjectREFR * ref, TESForm * form)
     {
         if(!ref || !_IsPlayable(form) || (form->formType != FormType::kFormType_WEAP && form->formType != FormType::kFormType_ARMO))
@@ -378,13 +407,13 @@ namespace PapyrusLootman
         return false;
     }
 
-    // 対象のキーワードを含む、すべてのフォームリストを検索して返す
+    // Get and return the injection data to be registered in the form list
     VMArray<TESForm *> GetInjectionDataForList(StaticFunctionTag *, BSFixedString identify)
     {
         VMArray<TESForm *> result;
 
-        auto dataIt = Globals::formListData.FindMember(identify);
-        if(dataIt == Globals::formListData.MemberEnd() || !dataIt->value.IsArray())
+        auto dataIt = InjectionData::formListData.FindMember(identify);
+        if(dataIt == InjectionData::formListData.MemberEnd() || !dataIt->value.IsArray())
         {
             return result;
         }
@@ -413,7 +442,7 @@ namespace PapyrusLootman
                 TESForm * form = LookupFormByID(formId);
                 if(!form)
                 {
-                    _WARNING("* Form is not found [ModName=%s, LowerFormId=%s, FormId=%08X]", modName.c_str(), lowerFormId.c_str(), formId);
+                    _WARNING("* Form is not found [ModName: %s, LowerFormID: %s, FormID: %08X]", modName.c_str(), lowerFormId.c_str(), formId);
                     continue;
                 }
 
@@ -424,17 +453,16 @@ namespace PapyrusLootman
         return result;
     }
 
-    // フォームのフォームタイプを取得して返す
+    // Get and returns the form type of the form
     UInt32 GetFormType(StaticFunctionTag *, TESForm * form)
     {
         return !form ? -1 : form->formType;
     }
 
-    // オブジェクトがワークショップとリンクしているか評価して返す
-    // ロジックはPapyrusObjectReference.cppのAttachWireLatentから拝借
+    // Verify the object is linked to the workshop
+    // Source code used for reference: PapyrusObjectReference#AttachWireLatent
     bool IsLinkedToWorkshop(StaticFunctionTag *, TESObjectREFR * ref)
     {
-        // ワークショップのキーワードを取得
         BGSKeyword * keyword = nullptr;
         BGSDefaultObject * workshopItemDefault = (*g_defaultObjectMap)->GetDefaultObject("WorkshopItem");
         if(workshopItemDefault)
@@ -442,21 +470,17 @@ namespace PapyrusLootman
             keyword = DYNAMIC_CAST(workshopItemDefault->form, TESForm, BGSKeyword);
         }
 
-        // ワークショップのキーワード取得に失敗
         if(!keyword)
         {
             return false;
         }
 
-        // 取得したキーワードを使用して
-        // オブジェクトにリンクしているワークショップ（と思われる）オブジェクトを取得
         TESObjectREFR * workshopRef = GetLinkedRef_Native(ref, keyword);
         if(!workshopRef)
         {
             return false;
         }
 
-        // 取得したオブジェクトが本当にワークショップであるか確認
         BSExtraData* extraDataWorkshop = workshopRef->extraDataList->GetByType(ExtraDataType::kExtraData_WorkshopExtraData);
         if(!extraDataWorkshop)
         {
@@ -466,7 +490,7 @@ namespace PapyrusLootman
         return true;
     }
 
-    // オブジェクトをスクラップした場合のコンポーネントを取得する。
+    // Return the result of scrapping an object
     VMArray<MiscComponent> GetScrapComponents(StaticFunctionTag *, VMRefOrInventoryObj * ref)
     {
         VMArray<MiscComponent> result;
@@ -581,13 +605,13 @@ namespace PapyrusLootman
     }
 
 #ifdef _DEBUG
-    // ランダムなプロセスID(10桁のランダムな16進数文字列)を生成して返す
+    // Generate and return a random process ID
     BSFixedString GetRandomProcessID(StaticFunctionTag *)
     {
         return _GetRandomProcessID();
     }
 
-    // フォームIDを16進数の文字列にして返す
+    // Converts and return the form ID to a hexadecimal string
     BSFixedString GetHexID(StaticFunctionTag *, TESForm * form)
     {
         std::stringstream ss;
@@ -595,7 +619,7 @@ namespace PapyrusLootman
         return ss.str().c_str();
     }
 
-    // ミリ秒を取得して返す
+    // Get and return the current millisecond
     BSFixedString GetMilliseconds(StaticFunctionTag *)
     {
         auto now = std::chrono::system_clock::now();
@@ -605,7 +629,7 @@ namespace PapyrusLootman
         return ss.str().c_str();
     }
 
-    // フォームの識別名を取得して返す
+    // Get and return the form's identify
     BSFixedString GetIdentify(StaticFunctionTag *, TESForm * form)
     {
         TESFullName * fullName = DYNAMIC_CAST(form, TESForm, TESFullName);

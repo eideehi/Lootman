@@ -3,6 +3,9 @@
 #ifdef _DEBUG
 
 #include <bitset>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
 #include <map>
 #include <random>
 #include <sstream>
@@ -10,25 +13,24 @@
 #include "f4se/GameReferences.h"
 #include "f4se/GameRTTI.h"
 
-
 const char * _FlagsToBinaryString(UInt64 flags)
 {
-    return BSFixedString(std::bitset< 64 >( flags ).to_string().c_str());
+    return BSFixedString(std::bitset< 64 >(flags).to_string().c_str());
 }
 
 const char * _FlagsToBinaryString(UInt32 flags)
 {
-    return BSFixedString(std::bitset< 32 >( flags ).to_string().c_str());
+    return BSFixedString(std::bitset< 32 >(flags).to_string().c_str());
 }
 
 const char * _FlagsToBinaryString(UInt16 flags)
 {
-    return BSFixedString(std::bitset< 16 >( flags ).to_string().c_str());
+    return BSFixedString(std::bitset< 16 >(flags).to_string().c_str());
 }
 
 const char * _FlagsToBinaryString(SInt32 flags)
 {
-    return BSFixedString(std::bitset< 32 >( flags ).to_string().c_str());
+    return BSFixedString(std::bitset< 32 >(flags).to_string().c_str());
 }
 
 const char * _FormTypeToString(UInt8 formType)
@@ -345,7 +347,6 @@ void _TraceReferenceFlags(const char * processId, TESObjectREFR * ref, int inden
 
     _MESSAGE("| %s | %s[ Reference Flags ]", processId, i1);
 
-    _MESSAGE("| %s | %sReference  : [Name=%s, ID=%08X]", processId, i2, CALL_MEMBER_FN(ref, GetReferenceName)(), referenceId);
     _MESSAGE("| %s | %sFlags      : %s", processId, i2, _FlagsToBinaryString(flags));
 
     _MESSAGE("| %s | %s[ Digits ]", processId, i2);
@@ -388,8 +389,8 @@ void _TraceReferenceFlags(const char * processId, TESObjectREFR * ref, int inden
     }
 }
 
-// ランダムなプロセスID(10桁のランダムな16進数文字列)を生成して返す
-// 少しいじったけど、ロジックは次のURLから拝借 # https://stackoverflow.com/questions/12110209/how-to-fill-a-string-with-random-hex-characters
+// Generate and return a random process ID (a 10-digit random hexadecimal string)
+// Pages used for reference: https://stackoverflow.com/questions/12110209/how-to-fill-a-string-with-random-hex-characters#answer-12110369
 const char * _GetRandomProcessID()
 {
     const char * hex = "0123456789ABCDEF";

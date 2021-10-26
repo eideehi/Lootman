@@ -183,13 +183,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Debug.cpp" />
-    <ClCompile Include="Globals.cpp" />
+    <ClCompile Include="FormIDCache.cpp" />
+    <ClCompile Include="InjectionData.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="PapyrusLootman.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Debug.h" />
-    <ClInclude Include="Globals.h" />
+    <ClInclude Include="FormIDCache.h" />
+    <ClInclude Include="InjectionData.h" />
     <ClInclude Include="PapyrusLootman.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

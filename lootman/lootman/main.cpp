@@ -3,13 +3,25 @@
 #include "f4se/PluginAPI.h"
 #include "f4se_common/f4se_version.h"
 
-#include "Globals.h"
+#include "FormIDCache.h"
+#include "InjectionData.h"
 #include "PapyrusLootman.h"
 
 IDebugLog gLog;
 
 PluginHandle pluginHandle = kPluginHandle_Invalid;
 F4SEPapyrusInterface * papyrus = nullptr;
+F4SEMessagingInterface * messaging = nullptr;
+
+void Messaging(F4SEMessagingInterface::Message * msg)
+{
+    _MESSAGE(">> F4SE messaging: [type: %d]", msg->type);
+    if(msg->type == F4SEMessagingInterface::kMessage_GameLoaded)
+    {
+        GetEventDispatcher<TESObjectLoadedEvent>()->AddEventSink(&FormIDCache::eventListener);
+        _MESSAGE(">>   Form ID cache is registered.");
+    }
+}
 
 extern "C"
 {
@@ -21,7 +33,7 @@ extern "C"
 
         info->infoVersion = PluginInfo::kInfoVersion;
         info->name = "Lootman";
-        info->version = 11016307;// FO4 1.10.163-07
+        info->version = 11016308;// FO4 1.10.163-08
 
         if(f4se->isEditor)
         {
@@ -42,6 +54,14 @@ extern "C"
             return false;
         }
 
+        pluginHandle = f4se->GetPluginHandle();
+        messaging = (F4SEMessagingInterface *)f4se->QueryInterface(kInterface_Messaging);
+        if(!messaging)
+        {
+            _FATALERROR(">>   Couldn't get message interface");
+            return false;
+        }
+
         _MESSAGE(">> Lootman plugin query phase end.");
         return true;
     }
@@ -50,21 +70,21 @@ extern "C"
     {
         _MESSAGE(">> Lootman plugin load phase start.");
 
-        if(!Globals::Initialize())
+        if(!InjectionData::Initialize())
         {
-            _FATALERROR(">>   Failed to initialization for globals.");
-            return false;
-        }
-
-        if(!papyrus)
-        {
-            _FATALERROR(">>   Couldn't get papyrus interface.");
+            _FATALERROR(">>   Failed to initialization for InjectionData.");
             return false;
         }
 
         if(!papyrus->Register(PapyrusLootman::RegisterFuncs))
         {
             _FATALERROR(">>   Failed to register papyrus functions.");
+            return false;
+        }
+
+        if(!messaging->RegisterListener(pluginHandle, "F4SE", Messaging))
+        {
+            _FATALERROR(">>   Failed to messaging functions.");
             return false;
         }
 
